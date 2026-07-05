@@ -1,0 +1,83 @@
+{
+  "kerberos": {
+    "label": "Kerberos",
+    "actors": [
+      {"id": "client", "label": "Client"},
+      {"id": "kdc", "label": "KDC (AS + TGS)"},
+      {"id": "service", "label": "Service / Server"}
+    ],
+    "steps": [
+      {"order": 1, "name": "AS-REQ", "actor_from": "client", "actor_to": "kdc", "message": "AS-REQ: identity + pre-auth timestamp (encrypted with password-derived key)", "description": "The client requests a Ticket Granting Ticket, proving it knows the password by encrypting a timestamp (pre-authentication).", "security_note": "If pre-auth is disabled for an account, the KDC returns encrypted material to anyone - enabling AS-REP Roasting.", "attack": "AS-REP Roasting (T1558.004)"},
+      {"order": 2, "name": "AS-REP", "actor_from": "kdc", "actor_to": "client", "message": "AS-REP: TGT (encrypted with krbtgt key) + session key", "description": "The KDC issues a TGT encrypted with the krbtgt account's key, plus a session key for future requests.", "security_note": "The TGT is encrypted with the krbtgt hash. If that hash is stolen, an attacker forges TGTs for anyone - a Golden Ticket.", "attack": "Golden Ticket (T1558.001)"},
+      {"order": 3, "name": "TGS-REQ", "actor_from": "client", "actor_to": "kdc", "message": "TGS-REQ: present TGT, request service ticket for an SPN", "description": "The client presents its TGT and asks for a service ticket for a specific Service Principal Name.", "security_note": "Any authenticated user can request a service ticket for any SPN - the basis of Kerberoasting.", "attack": "Kerberoasting (T1558.003)"},
+      {"order": 4, "name": "TGS-REP", "actor_from": "kdc", "actor_to": "client", "message": "TGS-REP: service ticket (encrypted with the service account key)", "description": "The KDC returns a service ticket encrypted with the target service account's key.", "security_note": "Because the ticket is encrypted with the service account's hash, it can be cracked offline to recover that account's password.", "attack": "Kerberoasting (T1558.003)"},
+      {"order": 5, "name": "AP-REQ", "actor_from": "client", "actor_to": "service", "message": "AP-REQ: present service ticket to the service", "description": "The client presents the service ticket to the service to gain access.", "security_note": "A service trusts any ticket it can decrypt. With the service hash, an attacker forges a Silver Ticket that never touches the KDC.", "attack": "Silver Ticket (T1558.002)"},
+      {"order": 6, "name": "AP-REP", "actor_from": "service", "actor_to": "client", "message": "AP-REP: access granted (optional mutual authentication)", "description": "The service validates the ticket and grants access, optionally proving its own identity to the client.", "security_note": "There is no per-request check with the KDC, so forged or replayed tickets (Pass-the-Ticket) are accepted.", "attack": "Pass-the-Ticket (T1550.003)"}
+    ],
+    "attacks": [
+      {"name": "Kerberoasting", "mitre": "T1558.003", "note": "Request service tickets for SPNs and crack them offline to recover service-account passwords."},
+      {"name": "AS-REP Roasting", "mitre": "T1558.004", "note": "Target accounts with pre-auth disabled and crack the returned AS-REP offline."},
+      {"name": "Golden Ticket", "mitre": "T1558.001", "note": "Forge TGTs using a stolen krbtgt hash - full domain persistence."},
+      {"name": "Silver Ticket", "mitre": "T1558.002", "note": "Forge service tickets using a stolen service-account hash, bypassing the KDC."}
+    ]
+  },
+  "ntlm": {
+    "label": "NTLM",
+    "actors": [
+      {"id": "client", "label": "Client"},
+      {"id": "server", "label": "Server"},
+      {"id": "dc", "label": "Domain Controller"}
+    ],
+    "steps": [
+      {"order": 1, "name": "NEGOTIATE", "actor_from": "client", "actor_to": "server", "message": "NTLM_NEGOTIATE: advertise capabilities", "description": "The client requests NTLM authentication and advertises the features it supports.", "security_note": "NTLM has no server authentication at this stage, which enables relay attacks in the middle.", "attack": "NTLM Relay (T1557.001)"},
+      {"order": 2, "name": "CHALLENGE", "actor_from": "server", "actor_to": "client", "message": "NTLM_CHALLENGE: random 8-byte nonce", "description": "The server sends a random challenge (nonce) for the client to sign.", "security_note": "A relaying attacker can forward this challenge to a different target server the victim has access to.", "attack": "NTLM Relay (T1557.001)"},
+      {"order": 3, "name": "AUTHENTICATE", "actor_from": "client", "actor_to": "server", "message": "NTLM_AUTHENTICATE: response = challenge encrypted with the NT hash", "description": "The client returns a response computed from the challenge and its NT hash - the password itself is never sent.", "security_note": "Since only the NT hash is needed, a stolen hash authenticates without the plaintext password - Pass-the-Hash.", "attack": "Pass-the-Hash (T1550.002)"},
+      {"order": 4, "name": "VALIDATE", "actor_from": "server", "actor_to": "dc", "message": "Netlogon: forward response to the DC for validation", "description": "For domain accounts, the server forwards the response to a domain controller to verify it.", "security_note": "If the response is relayed to a service that lacks SMB signing, the attacker authenticates as the victim.", "attack": "NTLM Relay (T1557.001)"},
+      {"order": 5, "name": "RESULT", "actor_from": "dc", "actor_to": "server", "message": "Validation result: success -> access granted", "description": "The DC confirms the response and the server grants access to the client.", "security_note": "Captured NTLMv2 responses can be cracked offline to recover the password.", "attack": "Hash cracking (T1110.002)"}
+    ],
+    "attacks": [
+      {"name": "Pass-the-Hash", "mitre": "T1550.002", "note": "Authenticate using a stolen NT hash without ever knowing the password."},
+      {"name": "NTLM Relay", "mitre": "T1557.001", "note": "Relay a victim's authentication to another service that lacks signing."},
+      {"name": "Hash cracking", "mitre": "T1110.002", "note": "Crack captured NTLMv2 responses offline to recover credentials."}
+    ]
+  },
+  "pam": {
+    "label": "PAM (Linux)",
+    "actors": [
+      {"id": "user", "label": "User"},
+      {"id": "app", "label": "Application (login/sshd)"},
+      {"id": "pam", "label": "PAM stack"},
+      {"id": "shadow", "label": "/etc/shadow"}
+    ],
+    "steps": [
+      {"order": 1, "name": "Credentials", "actor_from": "user", "actor_to": "app", "message": "User supplies username + password", "description": "A PAM-aware application (login, sshd, sudo) collects the user's credentials.", "security_note": "The application delegates all policy to PAM, so a malicious application or PAM config controls the outcome.", "attack": "Modify Authentication Process (T1556.003)"},
+      {"order": 2, "name": "pam_authenticate", "actor_from": "app", "actor_to": "pam", "message": "Application calls pam_authenticate() through the PAM API", "description": "The application hands the credentials to the PAM stack defined in /etc/pam.d.", "security_note": "A rogue PAM module inserted into the stack can log passwords or grant access with a magic password.", "attack": "Malicious PAM module (T1556.003)"},
+      {"order": 3, "name": "auth check", "actor_from": "pam", "actor_to": "shadow", "message": "pam_unix compares the hash against /etc/shadow", "description": "The auth module (typically pam_unix) hashes the input and compares it to the stored hash.", "security_note": "Read access to /etc/shadow lets an attacker crack hashes offline (John/Hashcat).", "attack": "/etc/shadow theft (T1003.008)"},
+      {"order": 4, "name": "account/session", "actor_from": "pam", "actor_to": "app", "message": "account + session modules apply authorization, limits, logging", "description": "PAM enforces account validity (expiry, allowed times) and sets up the session.", "security_note": "Weak pam.d configuration (e.g. nullok, or pam_permit) can silently allow blank or any password.", "attack": "Weak PAM config"},
+      {"order": 5, "name": "Session", "actor_from": "app", "actor_to": "user", "message": "Success -> shell / session opened", "description": "PAM returns success and the application starts the user's session.", "security_note": "Session modules are also a persistence point (e.g. a module that spawns a backdoor at login).", "attack": "Modify Authentication Process (T1556)"}
+    ],
+    "attacks": [
+      {"name": "Malicious PAM module", "mitre": "T1556.003", "note": "A backdoored PAM module logs credentials or accepts a hard-coded password."},
+      {"name": "/etc/shadow theft", "mitre": "T1003.008", "note": "Steal the shadow file and crack password hashes offline."}
+    ]
+  },
+  "ssh": {
+    "label": "SSH",
+    "actors": [
+      {"id": "client", "label": "SSH Client"},
+      {"id": "server", "label": "SSH Server"}
+    ],
+    "steps": [
+      {"order": 1, "name": "Version + KEX init", "actor_from": "client", "actor_to": "server", "message": "TCP connect, protocol version exchange, algorithm negotiation", "description": "Client and server agree on protocol version and the key-exchange and cipher algorithms.", "security_note": "Weak or legacy algorithms should be disabled; scanning for open 22/tcp is a common recon step.", "attack": "Brute force (T1110.001)"},
+      {"order": 2, "name": "Key exchange", "actor_from": "server", "actor_to": "client", "message": "Diffie-Hellman KEX; server presents host key", "description": "A shared session key is derived, and the server proves its identity with its host key (checked against known_hosts).", "security_note": "If a user ignores a changed host key, a man-in-the-middle can intercept the session.", "attack": "MITM on unknown host key (T1557)"},
+      {"order": 3, "name": "Client auth", "actor_from": "client", "actor_to": "server", "message": "publickey: sign the session with the private key (or send password)", "description": "The client authenticates, typically by signing with its private key to prove possession.", "security_note": "Stolen private keys grant access silently; password auth is exposed to brute force.", "attack": "Private Keys theft (T1552.004)"},
+      {"order": 4, "name": "Authorize", "actor_from": "server", "actor_to": "client", "message": "Server checks ~/.ssh/authorized_keys (or password)", "description": "The server verifies the key against authorized_keys, or validates the password.", "security_note": "Adding a key to authorized_keys is a stealthy, common persistence technique.", "attack": "SSH authorized_keys (T1098.004)"},
+      {"order": 5, "name": "Session", "actor_from": "server", "actor_to": "client", "message": "Encrypted channel established -> shell / tunnel", "description": "An encrypted session opens; SSH can also forward ports and tunnel other traffic.", "security_note": "SSH tunnels are used to pivot and exfiltrate over an allowed port (22).", "attack": "Protocol Tunneling (T1572)"}
+    ],
+    "attacks": [
+      {"name": "authorized_keys persistence", "mitre": "T1098.004", "note": "Add an attacker public key to authorized_keys for silent, durable access."},
+      {"name": "Private key theft", "mitre": "T1552.004", "note": "Steal unprotected private keys to authenticate as the victim."},
+      {"name": "SSH brute force", "mitre": "T1110.001", "note": "Guess passwords against exposed SSH; mitigate with keys-only + fail2ban."}
+    ]
+  }
+}

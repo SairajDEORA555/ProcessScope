@@ -1,0 +1,33 @@
+{
+  "explorer.exe": {
+    "label": "explorer.exe (benign)",
+    "pid": 2100,
+    "regions": [
+      {"base": "0x7ff6a1000000", "size": 2097152, "region_type": "Image", "protection": "R-X", "state": "Committed", "detail": "explorer.exe (.text)", "suspicious": false, "note": "The main executable image, mapped read-execute. Code pages are not writable in a healthy process."},
+      {"base": "0x7ffb20000000", "size": 1966080, "region_type": "Image", "protection": "R-X", "state": "Committed", "detail": "ntdll.dll", "suspicious": false, "note": "Core NT library, loaded into every process at the same base for the session."},
+      {"base": "0x7ffb1f000000", "size": 1179648, "region_type": "Image", "protection": "R-X", "state": "Committed", "detail": "kernel32.dll", "suspicious": false, "note": "Standard Win32 API library, backed by a signed file on disk."},
+      {"base": "0x7ffb1e000000", "size": 3145728, "region_type": "Image", "protection": "R-X", "state": "Committed", "detail": "KERNELBASE.dll", "suspicious": false, "note": "Backing library for many kernel32 exports."},
+      {"base": "0x1a2b0000", "size": 262144, "region_type": "Heap", "protection": "RW-", "state": "Committed", "detail": "Default process heap", "suspicious": false, "note": "Read-write data, never executable in a healthy process."},
+      {"base": "0x1a300000", "size": 1048576, "region_type": "Heap", "protection": "RW-", "state": "Committed", "detail": "Additional heap", "suspicious": false, "note": "Growth region for dynamic allocations."},
+      {"base": "0x8f0000", "size": 262144, "region_type": "Stack", "protection": "RW-", "state": "Committed", "detail": "Thread 1 stack", "suspicious": false, "note": "Per-thread stack with a guard page at the low end to detect overflow."},
+      {"base": "0x920000", "size": 262144, "region_type": "Stack", "protection": "RW-", "state": "Committed", "detail": "Thread 2 stack", "suspicious": false, "note": "Each thread gets its own stack region."},
+      {"base": "0x7ff5f0000000", "size": 16777216, "region_type": "Mapped", "protection": "R--", "state": "Committed", "detail": "Mapped file (font cache)", "suspicious": false, "note": "A file mapped read-only into the address space."},
+      {"base": "0x260000", "size": 8192, "region_type": "Private", "protection": "RW-", "state": "Committed", "detail": "PEB / TEB", "suspicious": false, "note": "Process and thread environment blocks holding key runtime metadata."}
+    ]
+  },
+  "notepad.exe": {
+    "label": "notepad.exe (hollowed)",
+    "pid": 6620,
+    "regions": [
+      {"base": "0x7ff700000000", "size": 131072, "region_type": "Image", "protection": "R-X", "state": "Committed", "detail": "notepad.exe (hollowed)", "suspicious": true, "note": "Process hollowing: the legitimate notepad image was mapped, then its code was unmapped and overwritten with malicious code before execution (T1055.012)."},
+      {"base": "0x7ffb20000000", "size": 1966080, "region_type": "Image", "protection": "R-X", "state": "Committed", "detail": "ntdll.dll", "suspicious": false, "note": "Loaded normally; injection routines call ntdll APIs like NtMapViewOfSection and NtWriteVirtualMemory."},
+      {"base": "0x7ffb1f000000", "size": 1179648, "region_type": "Image", "protection": "R-X", "state": "Committed", "detail": "kernel32.dll", "suspicious": false, "note": "Standard library."},
+      {"base": "0x2a0000", "size": 16384, "region_type": "Private", "protection": "RWX", "state": "Committed", "detail": "Private RWX (shellcode)", "suspicious": true, "note": "Private, committed, Read-Write-Execute memory with no backing module - the single strongest indicator of injected shellcode (T1055)."},
+      {"base": "0x3b0000", "size": 65536, "region_type": "Private", "protection": "R-X", "state": "Committed", "detail": "Private R-X (unbacked code)", "suspicious": true, "note": "Executable code in PRIVATE memory (not mapped to a DLL on disk) - a red flag for reflectively loaded or copied code."},
+      {"base": "0x1b100000", "size": 262144, "region_type": "Heap", "protection": "RW-", "state": "Committed", "detail": "Default process heap", "suspicious": false, "note": "Normal data heap."},
+      {"base": "0x7f0000", "size": 262144, "region_type": "Stack", "protection": "RW-", "state": "Committed", "detail": "Thread 1 stack", "suspicious": false, "note": "Main thread stack. In hollowing the thread's start address is redirected to the malicious code."},
+      {"base": "0x400000", "size": 32768, "region_type": "Mapped", "protection": "RW-", "state": "Committed", "detail": "Mapped section (remote-written)", "suspicious": true, "note": "A shared section mapped and written from another process - a way to plant code without an obvious VirtualAllocEx (T1055.004)."},
+      {"base": "0x260000", "size": 8192, "region_type": "Private", "protection": "RW-", "state": "Committed", "detail": "PEB / TEB", "suspicious": false, "note": "The PEB may be patched during hollowing to point at the new image base."}
+    ]
+  }
+}

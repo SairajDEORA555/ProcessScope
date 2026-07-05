@@ -1,0 +1,38 @@
+{
+  "clean": {
+    "label": "Clean Host",
+    "description": "A normal workstation process tree with expected parent-child relationships.",
+    "nodes": [
+      {"pid": 2100, "ppid": 720, "name": "explorer.exe", "user": "DESKTOP-PS\\Manas", "cmdline": "C:\\Windows\\Explorer.EXE", "verdict": "benign", "reason": "The Windows shell, launched by userinit. Expected root of user processes.", "technique": ""},
+      {"pid": 3200, "ppid": 2100, "name": "chrome.exe", "user": "DESKTOP-PS\\Manas", "cmdline": "\"chrome.exe\"", "verdict": "benign", "reason": "Browser launched from the shell - normal.", "technique": ""},
+      {"pid": 3400, "ppid": 2100, "name": "outlook.exe", "user": "DESKTOP-PS\\Manas", "cmdline": "\"OUTLOOK.EXE\"", "verdict": "benign", "reason": "Mail client launched from the shell - normal.", "technique": ""},
+      {"pid": 3500, "ppid": 2100, "name": "powershell.exe", "user": "DESKTOP-PS\\Manas", "cmdline": "powershell.exe Get-Service", "verdict": "benign", "reason": "Interactive PowerShell running a routine read-only command, launched by the user from explorer.", "technique": ""},
+      {"pid": 3700, "ppid": 2100, "name": "cmd.exe", "user": "DESKTOP-PS\\Manas", "cmdline": "C:\\Windows\\system32\\cmd.exe", "verdict": "benign", "reason": "User-launched command prompt - normal when parented by explorer.", "technique": ""}
+    ]
+  },
+  "phishing": {
+    "label": "Phishing -> Payload",
+    "description": "A malicious Office macro chain: an email attachment spawns PowerShell, which loads a payload via rundll32.",
+    "nodes": [
+      {"pid": 2100, "ppid": 720, "name": "explorer.exe", "user": "DESKTOP-PS\\Manas", "cmdline": "C:\\Windows\\Explorer.EXE", "verdict": "benign", "reason": "The shell - expected root.", "technique": ""},
+      {"pid": 3400, "ppid": 2100, "name": "outlook.exe", "user": "DESKTOP-PS\\Manas", "cmdline": "\"OUTLOOK.EXE\"", "verdict": "benign", "reason": "The user opened Outlook and a phishing email - the app itself is legitimate.", "technique": ""},
+      {"pid": 4100, "ppid": 3400, "name": "winword.exe", "user": "DESKTOP-PS\\Manas", "cmdline": "\"WINWORD.EXE\" /n \"C:\\Users\\Manas\\Downloads\\Invoice.docm\"", "verdict": "suspicious", "reason": "Word opened a macro-enabled attachment from Outlook. Legitimate on its own, but an Office app spawning children is a classic macro red flag.", "technique": "T1566.001 - Spearphishing Attachment"},
+      {"pid": 4300, "ppid": 4100, "name": "powershell.exe", "user": "DESKTOP-PS\\Manas", "cmdline": "powershell.exe -nop -w hidden -enc SQBFAFgAKABJAFcAUg...", "verdict": "malicious", "reason": "WINWORD spawned a hidden, encoded PowerShell - a document macro executing a payload. Office should never spawn PowerShell.", "technique": "T1059.001 - PowerShell / T1204.002"},
+      {"pid": 4500, "ppid": 4300, "name": "rundll32.exe", "user": "DESKTOP-PS\\Manas", "cmdline": "rundll32.exe", "verdict": "malicious", "reason": "rundll32 launched with no DLL or arguments - a hallmark of injected code hiding behind a signed binary.", "technique": "T1218.011 - Rundll32"},
+      {"pid": 4600, "ppid": 4300, "name": "cmd.exe", "user": "DESKTOP-PS\\Manas", "cmdline": "cmd.exe /c whoami & net group \"domain admins\" /domain", "verdict": "suspicious", "reason": "Post-exploitation discovery commands run by the payload.", "technique": "T1059.003 / T1087"},
+      {"pid": 4620, "ppid": 4600, "name": "whoami.exe", "user": "DESKTOP-PS\\Manas", "cmdline": "whoami.exe", "verdict": "suspicious", "reason": "Identity discovery - low signal alone, but part of the chain here.", "technique": "T1033 - System Owner/User Discovery"}
+    ]
+  },
+  "ransomware": {
+    "label": "Ransomware Execution",
+    "description": "A user runs a double-extension executable that deletes backups and prepares to encrypt.",
+    "nodes": [
+      {"pid": 2100, "ppid": 720, "name": "explorer.exe", "user": "DESKTOP-PS\\Manas", "cmdline": "C:\\Windows\\Explorer.EXE", "verdict": "benign", "reason": "The shell - expected root.", "technique": ""},
+      {"pid": 5200, "ppid": 2100, "name": "Invoice_2026.pdf.exe", "user": "DESKTOP-PS\\Manas", "cmdline": "\"C:\\Users\\Manas\\Downloads\\Invoice_2026.pdf.exe\"", "verdict": "malicious", "reason": "A double-extension executable run from Downloads - the ransomware dropper masquerading as a PDF.", "technique": "T1204.002 - Malicious File"},
+      {"pid": 5300, "ppid": 5200, "name": "vssadmin.exe", "user": "DESKTOP-PS\\Manas", "cmdline": "vssadmin.exe delete shadows /all /quiet", "verdict": "malicious", "reason": "Deletes Volume Shadow Copies to prevent recovery - a near-universal ransomware precursor.", "technique": "T1490 - Inhibit System Recovery"},
+      {"pid": 5320, "ppid": 5200, "name": "wmic.exe", "user": "DESKTOP-PS\\Manas", "cmdline": "wmic.exe shadowcopy delete", "verdict": "malicious", "reason": "A second method to delete shadow copies.", "technique": "T1490 - Inhibit System Recovery"},
+      {"pid": 5340, "ppid": 5200, "name": "bcdedit.exe", "user": "DESKTOP-PS\\Manas", "cmdline": "bcdedit.exe /set {default} recoveryenabled no", "verdict": "malicious", "reason": "Disables Windows recovery - another anti-recovery step.", "technique": "T1490 - Inhibit System Recovery"},
+      {"pid": 5360, "ppid": 5200, "name": "cmd.exe", "user": "DESKTOP-PS\\Manas", "cmdline": "cmd.exe /c taskkill /f /im sqlservr.exe", "verdict": "suspicious", "reason": "Stops processes that lock target files before encryption.", "technique": "T1489 - Service Stop"}
+    ]
+  }
+}
